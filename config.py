@@ -5,7 +5,6 @@ CONFIG = {
     "telegram_chat_id": "1194802438",
 
     # ─── TWELVE DATA ─────────────────────────────────────────────────────────
-    # Clé gratuite sur twelvedata.com → Dashboard → API Keys
     "twelvedata_key": "ccbed7d4da2d4745bc380e2a63d9be6d",
 
     # ─── PAIRES ──────────────────────────────────────────────────────────────
@@ -21,7 +20,10 @@ CONFIG = {
     ],
 
     # ─── TIMEFRAMES ──────────────────────────────────────────────────────────
-    "timeframes": ["H1", "H4", "D1"],
+    # D1 + H4 + H1 = combinaison pro recommandée
+    # 29 paires x 3 TF = 87 requêtes/scan
+    # 800 req/jour gratuit → 9 scans/jour → toutes les 2h30
+    "timeframes": ["D1", "H4", "H1"],
 
     # ─── SETUPS ACTIFS ───────────────────────────────────────────────────────
     "active_setups": [
@@ -34,9 +36,10 @@ CONFIG = {
     "min_confluence_score": 70,
 
     # ─── TIMING ──────────────────────────────────────────────────────────────
-    # 29 paires x 3 TF = ~87 appels/scan
-    # Plan gratuit Twelve Data = 800 req/jour → max 9 scans/jour
-    "scan_interval": 3600,
+    # 9000s = 2h30 — couvre toutes les sessions importantes
+    # Horaires des scans (heure française) :
+    # 00h00 - 02h30 - 05h00 - 07h30 - 10h00 - 12h30 - 15h00 - 17h30 - 20h00
+    "scan_interval": 9000,
 
     "send_summary": False,
 }
