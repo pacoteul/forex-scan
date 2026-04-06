@@ -33,7 +33,7 @@ CONFIG = {
     ],
 
     # ─── FILTRE QUALITÉ ──────────────────────────────────────────────────────
-    "min_confluence_score": 70,
+    "min_confluence_score": 60,
 
     # ─── TIMING ──────────────────────────────────────────────────────────────
     # 9000s = 2h30 — couvre toutes les sessions importantes
