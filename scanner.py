@@ -572,175 +572,122 @@ def calc_levels(df, direction, price, atr_v, dec):
     return {"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,
             "rr1":rr1,"rr2":rr2,"rr3":rr3,"sl_pips":round(abs(price-sl)*10000,1)}
 
-# ─── ANALYSE UNIFIÉE MULTI-TIMEFRAME PAR PAIRE ───────────────────────────────
+# ─── ANALYSE MULTI-TIMEFRAME PAR PAIRE ───────────────────────────────────────
 def analyze_pair(pair: str, timeframes: list) -> list:
     """
-    Analyse une paire sur TOUS les timeframes et produit UN SEUL signal unifié.
-    Logique Wall Street: cherche l'alignement multi-TF pour maximiser la fiabilité.
+    Analyse une paire sur tous les TF.
+    Génère un signal par setup détecté, enrichi du contexte multi-TF.
     """
     active    = CONFIG["active_setups"]
     min_score = CONFIG["min_confluence_score"]
     session_name, _ = get_session()
     sess_bonus = session_bonus(session_name, pair)
+    TF_WEIGHT  = {"D1":6,"H4":5,"H1":4,"M30":3,"M15":2,"M5":1}
 
-    # ── Étape 1: Collecter les données et signaux de chaque TF ────────────────
-    tf_results = {}  # tf → {df, setups[], conf_score, direction_vote, rsi, atr}
-
+    # ── Étape 1: Récupérer les données de tous les TF ─────────────────────────
+    tf_data = {}
     for tf in timeframes:
         df = fetch_ohlcv(pair, tf)
-        if df is None:
-            continue
+        if df is not None:
+            tf_data[tf] = df
 
-        tf_setups = []
+    if not tf_data:
+        return []
+
+    # ── Étape 2: Calculer la direction globale (vote multi-TF) ────────────────
+    buy_votes = 0; sell_votes = 0
+    tf_summary_lines = []
+
+    for tf, df in tf_data.items():
+        w = TF_WEIGHT.get(tf, 1)
+        if len(df) < 50: continue
+        e20 = ema(df["close"],20).iloc[-1]
+        e50 = ema(df["close"],50).iloc[-1]
+        r   = rsi(df["close"],14).iloc[-1]
+        struct = market_structure(df)
+        if struct == "BULLISH": buy_votes  += w
+        elif struct == "BEARISH": sell_votes += w
+        if e20 > e50: buy_votes  += w * 0.3
+        else:         sell_votes += w * 0.3
+
+    global_dir = "BUY" if buy_votes >= sell_votes else "SELL"
+    alignment  = round(max(buy_votes,sell_votes)/(buy_votes+sell_votes+0.001)*100)
+
+    # ── Étape 3: Détecter les setups sur chaque TF ────────────────────────────
+    signals = []
+
+    for tf, df in tf_data.items():
         for detector in DETECTORS:
             try:
                 result = detector(df)
                 if not result: continue
                 setup_name = result["setup"].split(" ",1)[-1] if " " in result["setup"] else result["setup"]
                 if setup_name not in active: continue
-                tf_setups.append(result)
-            except:
-                continue
 
-        if not tf_setups:
-            # Même sans setup, on garde les données pour la confluence
-            tf_results[tf] = {
-                "df": df, "setups": [],
-                "rsi": rsi(df["close"],14).iloc[-1],
-                "atr": atr(df).iloc[-1],
-                "price": df["close"].iloc[-1],
-            }
-        else:
-            tf_results[tf] = {
-                "df": df, "setups": tf_setups,
-                "rsi": rsi(df["close"],14).iloc[-1],
-                "atr": atr(df).iloc[-1],
-                "price": df["close"].iloc[-1],
-            }
+                direction = result["dir"]
+                conf      = full_confluence_score(df, direction)
 
-    if not tf_results:
-        return []
+                # Bonus si le setup est aligné avec la direction globale
+                dir_bonus = 8 if direction == global_dir else -10
 
-    # ── Étape 2: Trouver la direction dominante sur tous les TF ───────────────
-    buy_votes  = 0
-    sell_votes = 0
-    buy_setups_found  = []
-    sell_setups_found = []
+                raw = (result["strength"]*0.3 + conf["score"]*0.6) + sess_bonus + dir_bonus
+                total_score = min(100, round(raw))
 
-    # Poids par timeframe (D1 > H4 > H1 > M30 > M15 > M5)
-    TF_WEIGHT = {"D1":6, "H4":5, "H1":4, "M30":3, "M15":2, "M5":1}
+                if total_score < min_score: continue
 
-    for tf, data in tf_results.items():
-        weight = TF_WEIGHT.get(tf, 1)
-        # Vote basé sur les setups détectés
-        for setup in data["setups"]:
-            if setup["dir"] == "BUY":
-                buy_votes += weight
-                buy_setups_found.append((tf, setup))
-            else:
-                sell_votes += weight
-                sell_setups_found.append((tf, setup))
-        # Vote basé sur la structure (RSI, EMA) même sans setup
-        df = data["df"]
-        if len(df) >= 50:
-            e20 = ema(df["close"],20).iloc[-1]
-            e50 = ema(df["close"],50).iloc[-1]
-            r   = data["rsi"]
-            if e20 > e50 and r < 60: buy_votes  += weight * 0.3
-            if e20 < e50 and r > 40: sell_votes += weight * 0.3
+                price = df["close"].iloc[-1]
+                atr_v = atr(df).iloc[-1]
+                dec   = 5 if price < 10 else 3
+                levels = calc_levels(df, direction, price, atr_v, dec)
+                rsi_v  = rsi(df["close"],14).iloc[-1]
 
-    if buy_votes == 0 and sell_votes == 0:
-        return []
+                # Résumé MTF pour ce signal
+                tf_lines = []
+                for t2, df2 in tf_data.items():
+                    if len(df2) < 50: continue
+                    s2 = market_structure(df2)
+                    e20_2 = ema(df2["close"],20).iloc[-1]
+                    e50_2 = ema(df2["close"],50).iloc[-1]
+                    trend = "🟢" if e20_2>e50_2 else "🔴"
+                    tf_lines.append(f"{trend} {t2}: {s2}")
 
-    # Direction gagnante
-    direction = "BUY" if buy_votes >= sell_votes else "SELL"
-    winning_setups = buy_setups_found if direction == "BUY" else sell_setups_found
+                signals.append({
+                    "pair":        pair,
+                    "tf":          tf,
+                    "setup":       result["setup"],
+                    "direction":   direction,
+                    "global_dir":  global_dir,
+                    "alignment":   alignment,
+                    "tf_summary":  "\n".join(tf_lines),
+                    "strength":    result["strength"],
+                    "confluence":  conf["score"],
+                    "total_score": total_score,
+                    "details":     result["details"],
+                    "factors":     conf["factors"],
+                    "adx":         conf.get("adx"),
+                    "cci":         conf.get("cci"),
+                    "wr":          conf.get("wr"),
+                    "structure":   conf.get("structure","?"),
+                    "vol_regime":  conf.get("vol_regime","?"),
+                    "entry":       round(price, dec),
+                    "sl":          levels["sl"],
+                    "tp1":         levels["tp1"],
+                    "tp2":         levels["tp2"],
+                    "tp3":         levels["tp3"],
+                    "rr1":         levels["rr1"],
+                    "rr2":         levels["rr2"],
+                    "rr3":         levels["rr3"],
+                    "sl_pips":     levels["sl_pips"],
+                    "atr":         round(atr_v, dec),
+                    "rsi":         round(rsi_v, 1),
+                    "session":     session_name,
+                    "time":        datetime.now().strftime("%H:%M:%S"),
+                    "timestamp":   datetime.now().isoformat(),
+                })
+            except Exception as e:
+                log.debug(f"  {detector.__name__} {pair} {tf}: {e}")
 
-    if not winning_setups:
-        return []
-
-    # ── Étape 3: Calculer le score d'alignement multi-TF ─────────────────────
-    total_weight  = sum(TF_WEIGHT.get(tf,1) for tf in tf_results)
-    aligned_weight = sum(TF_WEIGHT.get(tf,1) for tf,_ in winning_setups)
-    alignment_pct  = round(aligned_weight / max(total_weight, 1) * 100)
-
-    # TFs confirmés
-    confirmed_tfs = sorted(set(tf for tf,_ in winning_setups),
-                           key=lambda t: list(TF_WEIGHT.keys()).index(t) if t in TF_WEIGHT else 99)
-
-    # Setup principal = celui du TF le plus élevé
-    main_tf, main_setup = winning_setups[0]
-    for tf, setup in winning_setups:
-        if TF_WEIGHT.get(tf,0) > TF_WEIGHT.get(main_tf,0):
-            main_tf, main_setup = tf, setup
-
-    # ── Étape 4: Score de confluence sur le TF principal ──────────────────────
-    main_df = tf_results[main_tf]["df"]
-    conf    = full_confluence_score(main_df, direction)
-
-    # Score final pondéré
-    alignment_bonus = min(20, len(confirmed_tfs) * 4)  # +4 pts par TF aligné
-    raw_score = (main_setup["strength"]*0.25 + conf["score"]*0.55 + alignment_pct*0.2) + sess_bonus + alignment_bonus
-    total_score = min(100, round(raw_score))
-
-    if total_score < min_score:
-        return []
-
-    # ── Étape 5: Niveaux sur le TF principal ──────────────────────────────────
-    price = tf_results[main_tf]["price"]
-    atr_v = tf_results[main_tf]["atr"]
-    dec   = 5 if price < 10 else 3
-    levels = calc_levels(main_df, direction, price, atr_v, dec)
-
-    rsi_v = tf_results[main_tf]["rsi"]
-
-    # Résumé des setups par TF
-    tf_summary = []
-    for tf in ["D1","H4","H1","M30","M15","M5"]:
-        if tf not in tf_results: continue
-        setups_on_tf = [s["setup"] for _,s in winning_setups if _ == tf]
-        if setups_on_tf:
-            tf_summary.append(f"✅ {tf}: {', '.join(setups_on_tf)}")
-        elif tf in tf_results:
-            tf_summary.append(f"➖ {tf}: aucun setup")
-
-    signal = {
-        "pair":         pair,
-        "tf":           main_tf,           # TF principal
-        "confirmed_tfs": " · ".join(confirmed_tfs),  # Tous les TF qui confirment
-        "tf_summary":   "\n".join(tf_summary),
-        "setup":        main_setup["setup"],
-        "direction":    direction,
-        "strength":     main_setup["strength"],
-        "confluence":   conf["score"],
-        "alignment":    alignment_pct,     # % des TF alignés
-        "total_score":  total_score,
-        "details":      main_setup["details"],
-        "factors":      conf["factors"],
-        "adx":          conf.get("adx"),
-        "cci":          conf.get("cci"),
-        "wr":           conf.get("wr"),
-        "structure":    conf.get("structure","?"),
-        "vol_regime":   conf.get("vol_regime","?"),
-        "entry":        round(price, dec),
-        "sl":           levels["sl"],
-        "tp1":          levels["tp1"],
-        "tp2":          levels["tp2"],
-        "tp3":          levels["tp3"],
-        "rr1":          levels["rr1"],
-        "rr2":          levels["rr2"],
-        "rr3":          levels["rr3"],
-        "sl_pips":      levels["sl_pips"],
-        "atr":          round(atr_v, dec),
-        "rsi":          round(rsi_v, 1),
-        "session":      session_name,
-        "time":         datetime.now().strftime("%H:%M:%S"),
-        "timestamp":    datetime.now().isoformat(),
-        "buy_votes":    round(buy_votes, 1),
-        "sell_votes":   round(sell_votes, 1),
-    }
-
-    return [signal]
+    return signals
 
 # ─── CALENDRIER ÉCONOMIQUE ────────────────────────────────────────────────────
 # Mapping devise → paires concernées
