@@ -9,37 +9,29 @@ CONFIG = {
 
     # ─── PAIRES ──────────────────────────────────────────────────────────────
     "pairs": [
-        "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
-        "AUD/USD", "NZD/USD", "USD/CAD",
-        "EUR/GBP", "EUR/JPY", "EUR/CAD", "EUR/AUD", "EUR/NZD", "EUR/CHF",
-        "GBP/JPY", "GBP/CAD", "GBP/AUD", "GBP/NZD", "GBP/CHF",
-        "CAD/JPY", "AUD/JPY", "NZD/JPY", "CHF/JPY",
-        "AUD/NZD", "AUD/CAD", "AUD/CHF",
-        "NZD/CAD", "NZD/CHF", "CAD/CHF",
-        "XAU/USD",
+        "EUR/USD", "EUR/JPY", "EUR/CAD", "EUR/GBP", "EUR/CHF",
+        "USD/JPY", "USD/CAD", "USD/CHF",
+        "CAD/JPY", "CAD/CHF",
+        "CHF/JPY",
+        "AUD/USD", "AUD/JPY", "AUD/CAD", "AUD/CHF",
+        "GBP/USD", "GBP/JPY", "GBP/CHF",
     ],
 
     # ─── TIMEFRAMES ──────────────────────────────────────────────────────────
-    # D1 + H4 + H1 = combinaison pro recommandée
-    # 29 paires x 3 TF = 87 requêtes/scan
-    # 800 req/jour gratuit → 9 scans/jour → toutes les 2h30
-    "timeframes": ["D1", "H4", "H1"],
+    # D1 + H4 + H1 + M15
+    # 18 paires x 4 TF = 72 req/scan
+    # 800 req/jour gratuit = 11 scans/jour max
+    "timeframes": ["D1", "H4", "H1", "M15"],
 
-    # ─── SETUPS ACTIFS ───────────────────────────────────────────────────────
-    "active_setups": [
-        "Pin Bar", "Engulfing", "Breakout", "RSI Div",
-        "SMC/BOS", "MACD Cross", "Ichimoku",
-        "Pivot", "Fibonacci", "CCI", "VWAP",
-    ],
-
-    # ─── FILTRE QUALITÉ ──────────────────────────────────────────────────────
-    "min_confluence_score": 60,
+    # ─── SCORE MINIMUM ───────────────────────────────────────────────────────
+    # 75 = haute qualite (recommande)
+    "min_confluence_score": 75,
 
     # ─── TIMING ──────────────────────────────────────────────────────────────
-    # 9000s = 2h30 — couvre toutes les sessions importantes
-    # Horaires des scans (heure française) :
-    # 00h00 - 02h30 - 05h00 - 07h30 - 10h00 - 12h30 - 15h00 - 17h30 - 20h00
-    "scan_interval": 9000,
+    # 3600s = 1h entre chaque scan
+    # Sessions actives: 9h-17h heure Paris
+    # Hors session = scan tourne mais aucun signal envoye
+    "scan_interval": 3600,
 
     "send_summary": False,
 }
